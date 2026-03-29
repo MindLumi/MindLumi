@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumi — Test Console</title>
+<style>
+  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e4e4e7; --muted: #71717a; --primary: #6366f1; --primary-hover: #818cf8; --green: #22c55e; --yellow: #eab308; --red: #ef4444; --cyan: #06b6d4; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 960px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  h1 span { color: var(--primary); }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 8px 16px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab:hover { color: var(--text); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .card h3 { font-size: 0.95rem; margin-bottom: 8px; color: var(--cyan); }
+  label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; margin-top: 8px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; }
+  textarea { resize: vertical; min-height: 60px; }
+  button { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin-top: 8px; }
+  button:hover { background: var(--primary-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 4px 10px; font-size: 0.8rem; margin: 0; }
+  .row { display: flex; gap: 8px; align-items: end; }
+  .row > * { flex: 1; }
+  .messages { max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
+  .msg { padding: 8px 12px; margin: 6px 0; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; }
+  .msg.user { background: var(--primary); color: white; margin-left: 20%; text-align: right; border-bottom-right-radius: 2px; }
+  .msg.assistant { background: var(--surface); border: 1px solid var(--border); margin-right: 20%; border-bottom-left-radius: 2px; }
+  .msg.system { background: var(--red); color: white; text-align: center; font-size: 0.85rem; }
+  .meta { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge-openai { background: #1a3a2a; color: var(--green); }
+  .badge-claude { background: #2a1a3a; color: #c084fc; }
+  .badge-safe { background: #1a2a1a; color: var(--green); }
+  .badge-warn { background: #2a2a1a; color: var(--yellow); }
+  .badge-danger { background: #2a1a1a; color: var(--red); }
+  .session-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .session-item:hover { background: var(--bg); }
+  .session-item.active { border-left: 3px solid var(--primary); }
+  .status { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.ok { background: var(--green); }
+  .dot.err { background: var(--red); }
+  #log { font-family: monospace; font-size: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; color: var(--muted); }
+  .grid-2 { display: grid; grid-template-columns: 280px 1fr; gap: 12px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🧠 <span>Lumi</span> Test Console</h1>
+  <p class="subtitle">Dual-provider AI therapy chat — OpenAI Responses API &amp; Claude Messages API</p>
+
+  <div class="card" style="padding:8px 12px">
+    <div class="row" style="align-items:center">
+      <div><label style="margin:0">Supabase URL</label><input id="cfgUrl" placeholder="https://xxx.supabase.co" style="margin-top:2px"></div>
+      <div><label style="margin:0">Anon Key</label><input id="cfgAnon" type="password" placeholder="your-anon-key" style="margin-top:2px"></div>
+      <div style="flex:0"><button onclick="signIn()" style="margin-top:16px" class="btn-sm">Sign In</button></div>
+    </div>
+    <div class="row" style="margin-top:6px; align-items:center">
+      <div><label style="margin:0">Email</label><input id="cfgEmail" placeholder="test@example.com"></div>
+      <div><label style="margin:0">Password</label><input id="cfgPass" type="password" placeholder="password"></div>
+      <div style="flex:0" id="authStatus"><span class="dot err"></span></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('chat')">💬 Chat</button>
+    <button class="tab" onclick="switchTab('sessions')">📋 Sessions</button>
+    <button class="tab" onclick="switchTab('mood')">🌤 Mood</button>
+    <button class="tab" onclick="switchTab('logs')">📊 Logs</button>
+  </div>
+
+  <!-- CHAT TAB -->
+  <div id="tab-chat" class="panel active">
+    <div class="grid-2">
+      <div>
+        <div class="card">
+          <h3>New Session</h3>
+          <label>Provider</label>
+          <select id="newProvider"><option value="openai">OpenAI (Responses API)</option><option value="claude">Claude (Messages API)</option></select>
+          <label>Modality</label>
+          <select id="newModality">
+            <option>CBT</option><option>DBT</option><option>ACT</option><option>mindfulness</option>
+            <option>somatic</option><option>IFS</option><option>narrative</option><option>psychoeducation</option>
+          </select>
+          <label>Session Goal</label>
+          <input id="newGoal" placeholder="What would you like to explore?">
+          <button onclick="createSession()">Start Session</button>
+        </div>
+        <div class="card">
+          <h3>Active Session</h3>
+          <div id="sessionInfo" style="font-size:0.85rem;color:var(--muted)">No session selected</div>
+        </div>
+      </div>
+      <div>
+        <div class="messages" id="chatMessages"></div>
+        <div class="row">
+          <textarea id="chatInput" placeholder="Type your message..." rows="2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+          <div style="flex:0"><button onclick="sendChat()" id="sendBtn">Send</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SESSIONS TAB -->
+  <div id="tab-sessions" class="panel">
+    <div class="card">
+      <h3>All Sessions</h3>
+      <button onclick="loadSessions()" class="btn-sm">Refresh</button>
+      <div id="sessionsList" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- MOOD TAB -->
+  <div id="tab-mood" class="panel">
+    <div class="card">
+      <h3>Log Mood</h3>
+      <div class="row">
+        <div><label>Score (1-10)</label><input id="moodScore" type="range" min="1" max="10" value="5" oninput="document.getElementById('moodVal').textContent=this.value"><span id="moodVal">5</span></div>
+        <div><label>Mood</label><select id="moodLabel"><option>calm</option><option>anxious</option><option>sad</option><option>hopeful</option><option>frustrated</option><option>grateful</option></select></div>
+      </div>
+      <label>Notes</label>
+      <textarea id="moodNotes" rows="2" placeholder="How are you feeling?"></textarea>
+      <button onclick="logMood()">Log Mood</button>
+    </div>
+    <div class="card">
+      <h3>Mood History</h3>
+      <button onclick="loadMoodHistory()" class="btn-sm">Load</button>
+      <div id="moodHistory" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- LOGS TAB -->
+  <div id="tab-logs" class="panel">
+    <div class="card">
+      <h3>API Request Log</h3>
+      <button onclick="document.getElementById('log').textContent=''" class="btn-sm">Clear</button>
+      <div id="log" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = null;
+let CURRENT_SESSION = null;
+
+function cfg() {
+  return {
+    url: document.getElementById('cfgUrl').value.replace(/\/$/, ''),
+    anon: document.getElementById('cfgAnon').value,
+  };
+}
+
+function log(msg) {
+  const el = document.getElementById('log');
+  el.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(fn, action, body, extraHeaders={}) {
+  const c = cfg();
+  const url = action ? c.url + '/functions/v1/' + fn + '?action=' + action : c.url + '/functions/v1/' + fn;
+  const headers = { 'Content-Type': 'application/json', 'apikey': c.anon, ...extraHeaders };
+  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+
+  log('→ ' + fn + (action ? '?action=' + action : '') + (body ? ' ' + JSON.stringify(body).substring(0,100) : ''));
+
+  const opts = body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers };
+  const res = await fetch(url, opts);
+  const data = await res.json();
+
+  log('← ' + res.status + ' ' + JSON.stringify(data).substring(0, 200));
+  return data;
+}
+
+async function signIn() {
+  const c = cfg();
+  const email = document.getElementById('cfgEmail').value;
+  const pass = document.getElementById('cfgPass').value;
+
+  try {
+    const res = await fetch(c.url + '/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': c.anon },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    const data = await res.json();
+    if (data.access_token) {
+      TOKEN = data.access_token;
+      document.getElementById('authStatus').innerHTML = '<span class="dot ok"></span> <span style="font-size:0.8rem;color:var(--green)">Signed in</span>';
+      log('✅ Authenticated as ' + email);
+      loadSessions();
+    } else {
+      document.getElementById('authStatus').innerHTML = '<span class="dot err"></span> <span style="font-size:0.8rem;color:var(--red)">' + (data.error_description || 'Failed') + '</span>';
+      log('❌ Auth failed: ' + JSON.stringify(data));
+    }
+  } catch(e) {
+    log('❌ Auth error: ' + e.message);
+  }
+}
+
+async function createSession() {
+  const provider = document.getElementById('newProvider').value;
+  const modality = document.getElementById('newModality').value;
+  const goal = document.getElementById('newGoal').value;
+
+  const data = await api('session', 'create', { modality, session_goal: goal || null });
+  if (data.success) {
+    CURRENT_SESSION = data.data;
+    updateSessionInfo();
+    document.getElementById('chatMessages').innerHTML = '';
+    addSystemMessage('Session created — ' + CURRENT_SESSION.ai_provider.toUpperCase() + ' / ' + CURRENT_SESSION.modality);
+    log('Session: ' + CURRENT_SESSION.id);
+  }
+}
+
+function updateSessionInfo() {
+  if (!CURRENT_SESSION) return;
+  const s = CURRENT_SESSION;
+  const provBadge = s.ai_provider === 'openai' ? 'badge-openai' : 'badge-claude';
+  document.getElementById('sessionInfo').innerHTML =
+    '<span class="badge ' + provBadge + '">' + s.ai_provider + '</span> ' +
+    '<span class="badge" style="background:var(--border)">' + s.modality + '</span><br>' +
+    '<span style="color:var(--muted);font-size:0.75rem">' + s.id.substring(0,8) + '… | ' + s.message_count + ' msgs</span>' +
+    (s.session_goal ? '<br><span style="font-size:0.8rem">Goal: ' + s.session_goal + '</span>' : '');
+}
+
+function addMessage(role, content, meta) {
+  const el = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = content.replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  if (meta) div.innerHTML += '<div class="meta">' + meta + '</div>';
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function addSystemMessage(text) {
+  const el = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.textContent = text;
+  el.appendChild(div);
+}
+
+async function sendChat() {
+  if (!CURRENT_SESSION) { alert('Create a session first'); return; }
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  document.getElementById('sendBtn').disabled = true;
+  addMessage('user', msg);
+
+  try {
+    const data = await api('chat', null, { session_id: CURRENT_SESSION.id, message: msg });
+    if (data.success) {
+      const d = data.data;
+      const safetyBadge = d.safety_level === 0 ? 'badge-safe' : d.safety_level === 1 ? 'badge-warn' : 'badge-danger';
+      const provBadge = d.provider === 'openai' ? 'badge-openai' : 'badge-claude';
+      const meta = '<span class="badge ' + provBadge + '">' + d.provider + '</span> ' +
+                   '<span class="badge ' + safetyBadge + '">safety:' + d.safety_level + '</span>' +
+                   (d.rag_sources > 0 ? ' <span class="badge" style="background:#1a2a3a;color:var(--cyan)">RAG:' + d.rag_sources + '</span>' : '') +
+                   (d.crisis_response ? ' <span class="badge badge-danger">⚠ CRISIS</span>' : '') +
+                   ' <span style="color:var(--muted)">' + (d.model || '') + '</span>';
+      addMessage('assistant', d.reply, meta);
+      CURRENT_SESSION.message_count = (CURRENT_SESSION.message_count || 0) + 2;
+      updateSessionInfo();
+    } else {
+      addSystemMessage('Error: ' + (data.error || 'Unknown'));
+    }
+  } catch(e) {
+    addSystemMessage('Error: ' + e.message);
+  }
+  document.getElementById('sendBtn').disabled = false;
+}
+
+async function loadSessions() {
+  const data = await api('session', 'list');
+  if (!data.success) return;
+  const el = document.getElementById('sessionsList');
+  if (!data.data.length) { el.innerHTML = '<div style="color:var(--muted)">No sessions yet</div>'; return; }
+  el.innerHTML = data.data.map(function(s) {
+    const provBadge = s.ai_provider === 'openai' ? 'badge-openai' : 'badge-claude';
+    return '<div class="session-item" onclick="selectSession(\'' + s.id + '\')">' +
+      '<div><span class="badge ' + provBadge + '">' + s.ai_provider + '</span> ' +
+      '<span class="badge" style="background:var(--border)">' + s.modality + '</span> ' +
+      '<span style="font-size:0.8rem">' + (s.title || s.id.substring(0,8) + '…') + '</span></div>' +
+      '<div style="font-size:0.8rem;color:var(--muted)">' + s.message_count + ' msgs | ' + s.status + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function selectSession(id) {
+  const c = cfg();
+  const res = await fetch(c.url + '/functions/v1/session?action=get&session_id=' + id, {
+    headers: { 'Authorization': 'Bearer ' + TOKEN, 'apikey': c.anon }
+  });
+  const sess = await res.json();
+
+  const msgRes = await fetch(c.url + '/functions/v1/session?action=get-messages&session_id=' + id, {
+    headers: { 'Authorization': 'Bearer ' + TOKEN, 'apikey': c.anon }
+  });
+  const msgs = await msgRes.json();
+
+  if (sess.success) {
+    CURRENT_SESSION = sess.data;
+    updateSessionInfo();
+    document.getElementById('chatMessages').innerHTML = '';
+    addSystemMessage('Loaded session — ' + CURRENT_SESSION.ai_provider.toUpperCase() + ' / ' + CURRENT_SESSION.modality);
+    if (msgs.success) {
+      for (const m of msgs.data) {
+        if (m.role === 'user' || m.role === 'assistant') addMessage(m.role, m.content);
+      }
+    }
+    switchTab('chat');
+  }
+}
+
+async function logMood() {
+  const data = await api('mood', 'log', {
+    mood_score: parseInt(document.getElementById('moodScore').value),
+    mood_label: document.getElementById('moodLabel').value,
+    mood_notes: document.getElementById('moodNotes').value || null,
+    session_id: CURRENT_SESSION ? CURRENT_SESSION.id : null,
+  });
+  if (data.success) {
+    document.getElementById('moodNotes').value = '';
+    alert('Mood logged!');
+    loadMoodHistory();
+  }
+}
+
+async function loadMoodHistory() {
+  const c = cfg();
+  const res = await fetch(c.url + '/functions/v1/mood?action=history&days=30', {
+    headers: { 'Authorization': 'Bearer ' + TOKEN, 'apikey': c.anon }
+  });
+  const data = await res.json();
+  if (!data.success) return;
+  const el = document.getElementById('moodHistory');
+  if (!data.data.length) { el.innerHTML = '<div style="color:var(--muted)">No entries</div>'; return; }
+  el.innerHTML = '<table style="width:100%;font-size:0.85rem"><tr style="color:var(--muted)"><td>Date</td><td>Score</td><td>Label</td><td>Notes</td></tr>' +
+    data.data.slice(0, 20).map(function(m) {
+      return '<tr><td>' + new Date(m.recorded_at).toLocaleDateString() + '</td>' +
+      '<td>' + '⭐'.repeat(Math.min(m.mood_score, 5)) + ' ' + m.mood_score + '</td>' +
+      '<td>' + (m.mood_label || '-') + '</td>' +
+      '<td style="color:var(--muted)">' + (m.mood_notes || '-') + '</td></tr>';
+    }).join('') + '</table>';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+</script>
+</body>
+</html>

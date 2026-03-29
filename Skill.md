@@ -1,13 +1,14 @@
 # Lumi — AI Therapy Coaching Platform: Comprehensive Development Reference
 
 > **Domain:** Psychological healing, therapy coaching, mental wellness
-> **Stack:** Supabase (PostgreSQL + pgvector + Edge Functions) · OpenAI Assistants API · TypeScript/Deno · React/Next.js
+> **Stack:** Supabase (PostgreSQL + pgvector + Edge Functions) · OpenAI Responses API · Anthropic Claude Messages API · TypeScript/Deno · React/Next.js
 > **Safety Note:** This system operates in a mental health context. Safety guardrails, crisis detection, and ethical boundaries are non-negotiable features, not optional enhancements.
 
 ---
 
 ## Table of Contents
 
+0. [Quick Start (New Machine Setup)](#0-quick-start-new-machine-setup)
 1. [App Identity & Domain Context](#1-app-identity--domain-context)
 2. [System Architecture](#2-system-architecture)
 3. [Database Schema](#3-database-schema)
@@ -17,6 +18,70 @@
 7. [Frontend Patterns](#7-frontend-patterns)
 8. [Deployment & Operations](#8-deployment--operations)
 9. [Knowledge Base Strategy](#9-knowledge-base-strategy)
+
+---
+
+## 0. Quick Start (New Machine Setup)
+
+> **Repository:** [https://github.com/MindLumi/MindLumi](https://github.com/MindLumi/MindLumi) (private)
+
+### Prerequisites
+- Git
+- Deno (>= 1.40) — for Supabase Edge Functions
+- Supabase CLI (>= 2.75) — `brew install supabase/tap/supabase` or `npm install -g supabase`
+- Node.js (>= 18) — for LumiUI and tooling
+- OpenAI API key
+- Anthropic API key (for Claude provider)
+
+### Clone & Configure
+```bash
+git clone https://github.com/MindLumi/MindLumi.git
+cd MindLumi
+
+# Copy and fill in your secrets
+cp .env.example .env.local
+# Edit .env.local with your API keys and Supabase credentials
+```
+
+### Supabase Setup
+```bash
+# Link to the Supabase project
+supabase link --project-ref <your-project-ref>
+
+# Push all migrations
+supabase db push
+
+# Set secrets on remote
+supabase secrets set --env-file .env.local --project-ref <ref>
+
+# Deploy all edge functions
+supabase functions deploy chat --no-verify-jwt --project-ref <ref>
+supabase functions deploy session --no-verify-jwt --project-ref <ref>
+supabase functions deploy mood --no-verify-jwt --project-ref <ref>
+supabase functions deploy admin --no-verify-jwt --project-ref <ref>
+
+# For local development
+supabase start
+supabase functions serve --env-file .env.local
+```
+
+### LumiUI (Test Console)
+```bash
+cd lumi-ui
+npx vercel  # Deploy to Vercel (or serve locally)
+```
+
+### Environment Variables
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key (for Responses API + embeddings) |
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key (for Claude provider) |
+| `AI_PROVIDER` | Yes | `"openai"` or `"claude"` — active chat provider |
+| `SUPABASE_URL` | Auto | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Auto | Public anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (edge functions) |
+| `ADMIN_SECRET_KEY` | Yes | Protects /admin endpoints |
+| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins |
 
 ---
 
@@ -98,33 +163,55 @@ type TherapyModality =
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    CLIENT LAYER                          │
-│  React/Next.js Web App  ·  Mobile (React Native/Expo)   │
+│  React/Next.js Web App  ·  LumiUI Test Console (Vercel) │
 │  Chat UI · Session Manager · Progress Dashboard         │
 └─────────────────────┬───────────────────────────────────┘
                       │ HTTPS / WebSocket
 ┌─────────────────────▼───────────────────────────────────┐
 │                  EDGE FUNCTION LAYER                     │
 │           Supabase Edge Functions (Deno)                 │
-│  /chat · /session · /knowledge-search · /admin          │
-│  CORS · JWT Auth · Rate Limiting · Safety Check         │
+│  /chat · /session · /mood · /admin                      │
+│  CORS (origin allowlist) · JWT Auth · Safety Check      │
 └──────┬──────────────┬──────────────┬────────────────────┘
        │              │              │
-┌──────▼──────┐ ┌─────▼──────┐ ┌───▼───────────────────┐
-│  OpenAI     │ │  pgvector  │ │  PostgreSQL            │
-│  Assistants │ │  Semantic  │ │  (Supabase)            │
-│  API        │ │  Search    │ │  Users · Sessions      │
-│  Threads    │ │  RAG       │ │  Messages · Mood       │
-│  Runs       │ │  HNSW idx  │ │  Progress · KBase      │
-└─────────────┘ └────────────┘ └───────────────────────┘
+┌──────▼──────────┐ ┌─▼──────────┐ ┌▼──────────────────────┐
+│  AI Provider    │ │  pgvector  │ │  PostgreSQL            │
+│  Abstraction    │ │  Semantic  │ │  (Supabase)            │
+│  ┌────────────┐ │ │  Search    │ │  Users · Sessions      │
+│  │ OpenAI     │ │ │  RAG       │ │  Messages · Mood       │
+│  │ Responses  │ │ │  HNSW idx  │ │  Progress · KBase      │
+│  │ API        │ │ │            │ │                        │
+│  ├────────────┤ │ ├────────────┤ │  provider_state JSONB  │
+│  │ Claude     │ │ │  OpenAI    │ │  ai_provider TEXT      │
+│  │ Messages   │ │ │  Embeddings│ │                        │
+│  │ API        │ │ │  (always)  │ │                        │
+│  └────────────┘ │ └────────────┘ └───────────────────────┘
+└─────────────────┘
 ```
+
+Key shared modules:
+- `_shared/ai-provider.ts` — Unified provider interface + factory
+- `_shared/openai-responses.ts` — OpenAI Responses API client
+- `_shared/claude-client.ts` — Claude Messages API client
+- `_shared/rag-pipeline.ts` — Multi-query expansion + pgvector search
+- `_shared/prompt-builder.ts` — Dynamic system prompt with input sanitization
+- `_shared/safety-guard.ts` — Tiered crisis detection with Unicode normalization
+- `_shared/cors.ts` — Origin-allowlist CORS
+- `_shared/auth.ts` — JWT auth + UUID validation
+- `_shared/response.ts` — Standard JSON response helpers
+- `_shared/ingest.ts` — Document chunking + batch embedding
+- `_shared/supabase-admin.ts` — Service role client
 
 ### 2.2 Component Responsibilities
 
 | Component | Responsibility | Technology |
 |-----------|---------------|------------|
-| **Frontend** | User interaction, session UI, mood tracking | React/Next.js or React Native |
+| **Frontend** | User interaction, session UI, mood tracking | React/Next.js or LumiUI test console |
 | **Edge Functions** | API logic, auth enforcement, AI orchestration | Deno (Supabase Edge) |
-| **OpenAI Assistants** | Long-context conversation, therapy responses | GPT-4o via Assistants API |
+| **AI Provider Layer** | Dual-provider chat (OpenAI or Claude) | `_shared/ai-provider.ts` abstraction |
+| **OpenAI Responses API** | Multi-turn conversation via `previous_response_id` | GPT-4o via Responses API |
+| **Claude Messages API** | Stateless conversation (history rebuilt from DB) | Claude via Messages API |
+| **OpenAI Embeddings** | Embedding for RAG (always, regardless of chat provider) | `text-embedding-3-small` (1536 dims) |
 | **pgvector** | Semantic search over knowledge base | PostgreSQL extension |
 | **PostgreSQL** | All persistent data (users, sessions, messages) | Supabase managed Postgres |
 | **Supabase Auth** | JWT-based auth, social login, session tokens | Supabase Auth |
@@ -138,11 +225,18 @@ type TherapyModality =
 - RLS for fine-grained data access control (critical for sensitive therapy data)
 - Realtime subscriptions for live conversation updates
 
-**Why OpenAI Assistants API (vs. raw completions):**
-- Thread management handles multi-turn context automatically
-- Persistent conversation history without building it manually
-- File/tool support for future document analysis features
-- Simpler than managing rolling context windows manually
+**Why Dual AI Providers (OpenAI + Claude):**
+- Provider flexibility — switch between models for cost, quality, or latency tradeoffs
+- Controlled via `AI_PROVIDER` env var (`"openai"` | `"claude"`)
+- OpenAI Responses API: `previous_response_id` for multi-turn (server-managed context)
+- Claude Messages API: stateless — full conversation history rebuilt from `session_messages` each request
+- RAG embeddings always use OpenAI `text-embedding-3-small` regardless of chat provider
+
+**Why OpenAI Responses API (not Assistants API):**
+- Simpler than Assistants: no threads, runs, or polling — single request/response
+- `previous_response_id` gives multi-turn context without manual history management
+- `instructions` parameter allows per-request system prompt overrides
+- Lower latency than Assistants API (no run polling loop)
 
 **Why Deno Edge Functions:**
 - Co-located with Supabase data (low latency)
@@ -163,19 +257,21 @@ Frontend → POST /functions/v1/chat
        ↓
 Edge Function: validate JWT, extract user_id
        ↓
-Safety check: scan message for crisis signals
+Safety check: normalize Unicode (NFKD) + strip zero-width chars → scan for crisis signals
        ↓ (if safe)
-Load session context (therapy_session record)
+Load session context (therapy_session record, including ai_provider)
        ↓
-RAG: embed message → pgvector search → top-k chunks
+RAG: embed message (OpenAI text-embedding-3-small) → pgvector search → top-k chunks
        ↓
-Build system prompt (modality + context + safety rules)
+Build system prompt (modality + context + safety rules) with input sanitization
        ↓
-OpenAI: add message to thread → create run → poll for completion
+Route to AI provider:
+  → OpenAI: POST /v1/responses with previous_response_id from provider_state
+  → Claude: POST /v1/messages with full history rebuilt from session_messages
        ↓
 Store assistant reply in session_messages
        ↓
-Update session metadata (last_active, message_count)
+Update session metadata (last_active, message_count, provider_state)
        ↓
 Return response to frontend
 ```
@@ -200,7 +296,7 @@ knowledge_documents (source documents)
 knowledge_chunks (chunked + embedded text)
 
 -- Configuration
-assistant_config (OpenAI assistant settings, prompts)
+assistant_config (AI provider settings, prompts)
 safety_events (crisis signals log)
 ```
 
@@ -261,8 +357,9 @@ CREATE TABLE public.therapy_sessions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 
-  -- OpenAI thread binding
-  openai_thread_id TEXT UNIQUE, -- One thread per session
+  -- AI provider binding
+  ai_provider TEXT NOT NULL DEFAULT 'openai', -- 'openai' or 'claude'
+  provider_state JSONB DEFAULT '{}'::JSONB, -- OpenAI: { previous_response_id: "..." }, Claude: {}
 
   -- Session metadata
   title TEXT, -- Auto-generated or user-set
@@ -309,9 +406,9 @@ CREATE TABLE public.session_messages (
   content TEXT NOT NULL,
   content_language TEXT DEFAULT 'en',
 
-  -- OpenAI references
-  openai_message_id TEXT, -- Message ID from OpenAI thread
-  openai_run_id TEXT,     -- Run ID that generated assistant message
+  -- AI provider references
+  openai_message_id TEXT, -- Response ID from OpenAI Responses API (if OpenAI provider)
+  openai_run_id TEXT,     -- Deprecated; kept for historical data
 
   -- Safety metadata
   safety_score INTEGER DEFAULT 0 CHECK (safety_score BETWEEN 0 AND 3),
@@ -484,8 +581,8 @@ $$;
 CREATE TABLE public.assistant_config (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL UNIQUE,
-  openai_assistant_id TEXT, -- Created assistant ID from OpenAI
-  model TEXT DEFAULT 'gpt-4o',
+  provider TEXT DEFAULT 'openai', -- 'openai' or 'claude'
+  model TEXT DEFAULT 'gpt-4o', -- e.g. 'gpt-4o', 'claude-sonnet-4-20250514'
   system_prompt TEXT NOT NULL,
   temperature FLOAT DEFAULT 0.7,
   modality TEXT, -- Which therapy modality this config serves
@@ -570,123 +667,164 @@ CREATE POLICY "public_read_knowledge_chunks" ON public.knowledge_chunks
 
 ## 4. AI & RAG Patterns
 
-### 4.1 OpenAI Assistants API — Thread Management
+### 4.1 Dual AI Provider Architecture
 
-Lumi uses one OpenAI thread per therapy session. This preserves conversation context within a session without manual history management.
+Lumi supports two AI providers, switchable via the `AI_PROVIDER` environment variable. Both providers share the same safety, RAG, and prompt-building pipeline — only the final chat call differs.
+
+**Provider Abstraction:**
 
 ```typescript
-// types/ai.ts
-export interface AssistantConfig {
-  assistantId: string;
-  model: string;
-  systemPrompt: string;
-  temperature: number;
+// _shared/ai-provider.ts
+
+export type AIProvider = 'openai' | 'claude';
+
+export interface ProviderResponse {
+  content: string;
+  providerState: Record<string, unknown>; // Updated state to persist
+  tokensUsed?: number;
 }
 
-export interface ThreadContext {
-  threadId: string;
-  sessionId: string;
-  userId: string;
-  modality: string;
-  language: string;
+export function getProvider(): AIProvider {
+  const provider = Deno.env.get('AI_PROVIDER') || 'openai';
+  if (provider !== 'openai' && provider !== 'claude') {
+    throw new Error(`Invalid AI_PROVIDER: ${provider}`);
+  }
+  return provider;
 }
 
-export interface RunResult {
-  messageContent: string;
-  runId: string;
-  tokensUsed: number;
-  safetyLevel: number;
+export async function sendMessage(
+  provider: AIProvider,
+  systemPrompt: string,
+  userMessage: string,
+  providerState: Record<string, unknown>,
+  sessionMessages?: { role: string; content: string }[]
+): Promise<ProviderResponse> {
+  switch (provider) {
+    case 'openai':
+      return sendOpenAIMessage(systemPrompt, userMessage, providerState);
+    case 'claude':
+      return sendClaudeMessage(systemPrompt, userMessage, sessionMessages || []);
+  }
 }
 ```
 
+**OpenAI Responses API (`POST /v1/responses`):**
+
+- Uses `previous_response_id` for multi-turn context (server-managed)
+- System prompt passed via `instructions` parameter per request
+- No threads, runs, or polling — single request/response
+- `provider_state` stores `{ "previous_response_id": "resp_abc123" }`
+
 ```typescript
-// lib/openai-client.ts
-import OpenAI from 'https://deno.land/x/openai@v4.52.0/mod.ts';
+// _shared/openai-responses.ts
 
-export const openai = new OpenAI({
-  apiKey: Deno.env.get('OPENAI_API_KEY')!,
-});
+export async function sendOpenAIMessage(
+  systemPrompt: string,
+  userMessage: string,
+  providerState: Record<string, unknown>
+): Promise<ProviderResponse> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY')!;
+  const previousResponseId = providerState.previous_response_id as string | undefined;
 
-// Create a new thread for a session
-export async function createThread(): Promise<string> {
-  const thread = await openai.beta.threads.create();
-  return thread.id;
-}
-
-// Add user message to thread
-export async function addUserMessage(
-  threadId: string,
-  content: string,
-  additionalContext?: string
-): Promise<string> {
-  const fullContent = additionalContext
-    ? `${content}\n\n---\n[Relevant context from knowledge base]\n${additionalContext}`
-    : content;
-
-  const message = await openai.beta.threads.messages.create(threadId, {
-    role: 'user',
-    content: fullContent,
-  });
-  return message.id;
-}
-
-// Run assistant and poll for completion
-export async function runAndWait(
-  threadId: string,
-  assistantId: string,
-  instructions?: string, // Runtime instruction override
-  maxWaitMs = 30000
-): Promise<OpenAI.Beta.Threads.Run> {
-  const run = await openai.beta.threads.runs.create(threadId, {
-    assistant_id: assistantId,
-    instructions,
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      instructions: systemPrompt,
+      input: userMessage,
+      ...(previousResponseId && { previous_response_id: previousResponseId }),
+    }),
   });
 
-  const startTime = Date.now();
-  let currentRun = run;
-
-  while (['queued', 'in_progress', 'cancelling'].includes(currentRun.status)) {
-    if (Date.now() - startTime > maxWaitMs) {
-      await openai.beta.threads.runs.cancel(threadId, run.id);
-      throw new Error('Run timed out after ' + maxWaitMs + 'ms');
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    currentRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(`OpenAI Responses API error: ${err.error?.message || response.statusText}`);
   }
 
-  if (currentRun.status !== 'completed') {
-    throw new Error(`Run ended with status: ${currentRun.status}`);
-  }
-
-  return currentRun;
-}
-
-// Get latest assistant message from thread
-export async function getLatestAssistantMessage(
-  threadId: string
-): Promise<{ content: string; messageId: string }> {
-  const messages = await openai.beta.threads.messages.list(threadId, {
-    order: 'desc',
-    limit: 1,
-  });
-
-  const latest = messages.data[0];
-  if (!latest || latest.role !== 'assistant') {
-    throw new Error('No assistant message found');
-  }
-
-  const textContent = latest.content.find(block => block.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('Assistant message has no text content');
-  }
+  const data = await response.json();
+  const outputText = data.output?.filter((o: any) => o.type === 'message')
+    .flatMap((o: any) => o.content)
+    .filter((c: any) => c.type === 'output_text')
+    .map((c: any) => c.text)
+    .join('') || '';
 
   return {
-    content: textContent.text.value,
-    messageId: latest.id,
+    content: outputText,
+    providerState: { previous_response_id: data.id },
+    tokensUsed: data.usage?.total_tokens,
   };
 }
 ```
+
+**Claude Messages API (`POST /v1/messages`):**
+
+- Stateless — full conversation history rebuilt from `session_messages` table each request
+- System prompt passed via top-level `system` parameter
+- `provider_state` is `{}` (no server-side state needed)
+
+```typescript
+// _shared/claude-client.ts
+
+export async function sendClaudeMessage(
+  systemPrompt: string,
+  userMessage: string,
+  sessionMessages: { role: string; content: string }[]
+): Promise<ProviderResponse> {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')!;
+
+  // Build messages array from session history + new message
+  const messages = [
+    ...sessionMessages.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' as const : 'user' as const,
+      content: m.content,
+    })),
+    { role: 'user' as const, content: userMessage },
+  ];
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(`Claude API error: ${err.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const outputText = data.content
+    ?.filter((c: any) => c.type === 'text')
+    .map((c: any) => c.text)
+    .join('') || '';
+
+  return {
+    content: outputText,
+    providerState: {}, // Claude is stateless
+    tokensUsed: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+  };
+}
+```
+
+**Provider state persistence:**
+
+| Provider | `provider_state` stores | Multi-turn mechanism |
+|----------|------------------------|---------------------|
+| OpenAI | `{ "previous_response_id": "resp_..." }` | Server-managed via Responses API |
+| Claude | `{}` | Full history rebuilt from `session_messages` table |
 
 ### 4.2 RAG Pipeline
 
@@ -962,7 +1100,9 @@ const CRISIS_KEYWORDS = {
 };
 
 export function assessSafety(message: string): SafetyAssessment {
-  const lower = message.toLowerCase();
+  // Unicode normalization (NFKD) to prevent bypass via zero-width chars
+  const normalized = message.normalize('NFKD').replace(/[\u200B-\u200F\u2028-\u202F\uFEFF]/g, '');
+  const lower = normalized.toLowerCase();
   const triggered: string[] = [];
 
   // Check level 3 (acute crisis)
@@ -1188,15 +1328,37 @@ export async function ingestDocument(doc: IngestDocument): Promise<void> {
 
 ```typescript
 // supabase/functions/_shared/cors.ts
-export const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
-};
+
+function getAllowedOrigins(): string[] {
+  const envOrigins = Deno.env.get('ALLOWED_ORIGINS');
+  if (envOrigins) {
+    return envOrigins.split(',').map(o => o.trim());
+  }
+  // Permissive fallback for local development
+  return ['*'];
+}
+
+export function getCorsHeaders(req: Request): Record<string, string> {
+  const allowedOrigins = getAllowedOrigins();
+  const requestOrigin = req.headers.get('Origin') || '';
+
+  let allowOrigin = '';
+  if (allowedOrigins.includes('*')) {
+    allowOrigin = '*';
+  } else if (allowedOrigins.includes(requestOrigin)) {
+    allowOrigin = requestOrigin;
+  }
+
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, x-admin-key, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
+  };
+}
 
 export function handleCors(req: Request): Response | null {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: getCorsHeaders(req) });
   }
   return null;
 }
@@ -1205,6 +1367,12 @@ export function handleCors(req: Request): Response | null {
 ```typescript
 // supabase/functions/_shared/auth.ts
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidUUID(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
 
 export async function authenticateRequest(req: Request): Promise<{
   userId: string;
@@ -1236,19 +1404,22 @@ export async function authenticateRequest(req: Request): Promise<{
 
 ```typescript
 // supabase/functions/_shared/response.ts
-import { corsHeaders } from './cors.ts';
+import { getCorsHeaders } from './cors.ts';
 
-export function successResponse(data: unknown, status = 200): Response {
+// Note: response helpers accept the original request to compute correct CORS origin
+export function successResponse(data: unknown, status = 200, req?: Request): Response {
+  const headers = req ? getCorsHeaders(req) : { 'Access-Control-Allow-Origin': '*' };
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...headers, 'Content-Type': 'application/json' },
   });
 }
 
-export function errorResponse(message: string, status = 400): Response {
+export function errorResponse(message: string, status = 400, req?: Request): Response {
+  const headers = req ? getCorsHeaders(req) : { 'Access-Control-Allow-Origin': '*' };
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...headers, 'Content-Type': 'application/json' },
   });
 }
 ```
@@ -1267,19 +1438,14 @@ export const supabaseAdmin = createClient(
 
 ```typescript
 // supabase/functions/chat/index.ts
-import { handleCors, corsHeaders } from '../_shared/cors.ts';
-import { authenticateRequest } from '../_shared/auth.ts';
+import { handleCors } from '../_shared/cors.ts';
+import { authenticateRequest, isValidUUID } from '../_shared/auth.ts';
 import { successResponse, errorResponse } from '../_shared/response.ts';
 import { supabaseAdmin } from '../_shared/supabase-admin.ts';
 import { assessSafety } from '../_shared/safety-guard.ts';
 import { retrieveTherapyContext } from '../_shared/rag-pipeline.ts';
 import { buildSystemPrompt } from '../_shared/prompt-builder.ts';
-import {
-  createThread,
-  addUserMessage,
-  runAndWait,
-  getLatestAssistantMessage,
-} from '../_shared/openai-client.ts';
+import { getProvider, sendMessage } from '../_shared/ai-provider.ts';
 
 interface ChatRequest {
   sessionId: string;
@@ -1296,6 +1462,9 @@ Deno.serve(async (req: Request) => {
 
     if (!sessionId || !message?.trim()) {
       return errorResponse('sessionId and message are required');
+    }
+    if (!isValidUUID(sessionId)) {
+      return errorResponse('Invalid sessionId format');
     }
 
     // 1. Load session
@@ -1314,7 +1483,7 @@ Deno.serve(async (req: Request) => {
       return errorResponse('Session is not active');
     }
 
-    // 2. Safety check
+    // 2. Safety check (with Unicode normalization)
     const safety = assessSafety(message);
 
     if (safety.shouldLogEvent) {
@@ -1379,24 +1548,14 @@ Deno.serve(async (req: Request) => {
 
     const language = profile?.preferred_language || 'en';
 
-    // 6. RAG: retrieve relevant therapy knowledge
+    // 6. RAG: retrieve relevant therapy knowledge (always uses OpenAI embeddings)
     const ragContext = await retrieveTherapyContext(
       message,
       session.modality,
       language
     );
 
-    // 7. Get or create OpenAI thread
-    let threadId = session.openai_thread_id;
-    if (!threadId) {
-      threadId = await createThread();
-      await supabaseAdmin
-        .from('therapy_sessions')
-        .update({ openai_thread_id: threadId })
-        .eq('id', sessionId);
-    }
-
-    // 8. Build system prompt
+    // 7. Build system prompt
     const systemPrompt = buildSystemPrompt({
       modality: session.modality,
       language,
@@ -1405,56 +1564,58 @@ Deno.serve(async (req: Request) => {
       currentSafetyLevel: safety.level,
     });
 
-    // 9. Add message to thread (with RAG context)
-    await addUserMessage(threadId, message, ragContext.contextText);
+    // 8. Determine AI provider and send message
+    const provider = session.ai_provider || getProvider();
+    const providerState = session.provider_state || {};
 
-    // 10. Load assistant config
-    const { data: assistantConfig } = await supabaseAdmin
-      .from('assistant_config')
-      .select('openai_assistant_id')
-      .eq('is_active', true)
-      .limit(1)
-      .single();
-
-    if (!assistantConfig?.openai_assistant_id) {
-      return errorResponse('No active assistant configured', 500);
+    // For Claude: load conversation history from session_messages
+    let sessionMessages: { role: string; content: string }[] = [];
+    if (provider === 'claude') {
+      const { data: history } = await supabaseAdmin
+        .from('session_messages')
+        .select('role, content')
+        .eq('session_id', sessionId)
+        .in('role', ['user', 'assistant'])
+        .order('created_at', { ascending: true });
+      sessionMessages = history || [];
     }
 
-    // 11. Run assistant
-    const run = await runAndWait(
-      threadId,
-      assistantConfig.openai_assistant_id,
-      systemPrompt // Runtime instruction override
+    // Append RAG context to user message for the provider
+    const messageWithContext = ragContext.contextText
+      ? `${message}\n\n---\n[Relevant context from knowledge base]\n${ragContext.contextText}`
+      : message;
+
+    const aiResponse = await sendMessage(
+      provider,
+      systemPrompt,
+      messageWithContext,
+      providerState,
+      sessionMessages
     );
 
-    // 12. Get response
-    const { content: reply, messageId: openaiMessageId } =
-      await getLatestAssistantMessage(threadId);
-
-    // 13. Store assistant reply
+    // 9. Store assistant reply
     await supabaseAdmin.from('session_messages').insert({
       session_id: sessionId,
       user_id: userId,
       role: 'assistant',
-      content: reply,
+      content: aiResponse.content,
       content_language: language,
-      openai_message_id: openaiMessageId,
-      openai_run_id: run.id,
       rag_chunks_used: ragContext.chunks.length,
       knowledge_sources: ragContext.sourceDocs,
     });
 
-    // 14. Update session stats
+    // 10. Update session stats and provider state
     await supabaseAdmin
       .from('therapy_sessions')
       .update({
         message_count: session.message_count + 2,
         last_active_at: new Date().toISOString(),
+        provider_state: aiResponse.providerState,
       })
       .eq('id', sessionId);
 
     return successResponse({
-      reply,
+      reply: aiResponse.content,
       safetyLevel: safety.level,
       sessionId,
       sourceDocs: ragContext.sourceDocs,
@@ -1665,23 +1826,31 @@ function computeTrend(scores: number[]): 'improving' | 'declining' | 'stable' | 
 
 ```typescript
 // supabase/functions/admin/index.ts
-// Protected by service role key check or admin claim in JWT
+// Protected by timing-safe admin key comparison
 
 import { handleCors } from '../_shared/cors.ts';
 import { successResponse, errorResponse } from '../_shared/response.ts';
 import { supabaseAdmin } from '../_shared/supabase-admin.ts';
 import { ingestDocument } from '../_shared/ingest.ts';
 
-function isAdminRequest(req: Request): boolean {
+async function isAdminRequest(req: Request): Promise<boolean> {
   const adminKey = req.headers.get('x-admin-key');
-  return adminKey === Deno.env.get('ADMIN_SECRET_KEY');
+  const expected = Deno.env.get('ADMIN_SECRET_KEY');
+  if (!adminKey || !expected) return false;
+
+  // Timing-safe comparison to prevent timing attacks
+  const encoder = new TextEncoder();
+  const a = encoder.encode(adminKey);
+  const b = encoder.encode(expected);
+  if (a.byteLength !== b.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(a, b);
 }
 
 Deno.serve(async (req: Request) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
-  if (!isAdminRequest(req)) {
+  if (!(await isAdminRequest(req))) {
     return errorResponse('Unauthorized', 401);
   }
 
@@ -1708,20 +1877,13 @@ Deno.serve(async (req: Request) => {
     return successResponse({ events: data });
   }
 
-  // POST /admin?action=setup-assistant — Create/update OpenAI Assistant
-  if (req.method === 'POST' && action === 'setup-assistant') {
-    const { name, systemPrompt, modality, language, model = 'gpt-4o' } = await req.json();
-
-    const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY')! });
-    const assistant = await openai.beta.assistants.create({
-      name: `Lumi — ${modality} (${language})`,
-      instructions: systemPrompt,
-      model,
-    });
+  // POST /admin?action=setup-config — Create/update AI provider config
+  if (req.method === 'POST' && action === 'setup-config') {
+    const { name, systemPrompt, modality, language, model = 'gpt-4o', provider = 'openai' } = await req.json();
 
     await supabaseAdmin.from('assistant_config').upsert({
       name,
-      openai_assistant_id: assistant.id,
+      provider,
       model,
       system_prompt: systemPrompt,
       modality,
@@ -1729,7 +1891,7 @@ Deno.serve(async (req: Request) => {
       is_active: true,
     });
 
-    return successResponse({ assistantId: assistant.id });
+    return successResponse({ name, provider, model });
   }
 
   return errorResponse('Unknown action', 400);
@@ -1918,6 +2080,37 @@ export function checkRateLimit(userId: string): boolean {
   entry.count++;
   return true; // allowed
 }
+```
+
+### 6.5 Security Hardening
+
+**CORS origin allowlist:**
+
+CORS is controlled via the `ALLOWED_ORIGINS` environment variable (comma-separated list of allowed origins). Falls back to permissive `*` for local development when unset.
+
+```bash
+# Production example
+ALLOWED_ORIGINS=https://lumi-ui.vercel.app,https://app.mindlumi.com
+```
+
+**Timing-safe admin key comparison:**
+
+The admin endpoint uses `crypto.subtle.timingSafeEqual` to compare the `x-admin-key` header against the stored secret, preventing timing-based side-channel attacks.
+
+**Unicode normalization in safety guard:**
+
+Safety keyword matching normalizes input with Unicode NFKD decomposition and strips zero-width characters (`\u200B-\u200F`, `\u2028-\u202F`, `\uFEFF`) before scanning. This prevents bypass attempts using homoglyphs, combining characters, or invisible Unicode.
+
+**Input sanitization in prompt builder:**
+
+The `buildSystemPrompt()` and message pipeline sanitize user inputs before inclusion:
+- Collapse multiple newlines to single newline
+- Strip markdown/HTML markup from user-provided values (session goals, concern lists)
+- Length cap on user-provided fields injected into system prompt (prevents prompt inflation)
+
+**UUID validation on all ID parameters:**
+
+All edge functions validate that `sessionId`, `userId`, and other ID parameters match UUID format (`/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`) before database queries.
 ```
 
 ---
@@ -2400,19 +2593,21 @@ export async function saveOnboardingData(
 ### 8.1 Project Structure
 
 ```
-lumi/
+MindLumi/
 ├── supabase/
 │   ├── functions/
 │   │   ├── _shared/           # Shared utilities
-│   │   │   ├── cors.ts
-│   │   │   ├── auth.ts
-│   │   │   ├── response.ts
-│   │   │   ├── supabase-admin.ts
-│   │   │   ├── openai-client.ts
-│   │   │   ├── rag-pipeline.ts
-│   │   │   ├── prompt-builder.ts
-│   │   │   ├── safety-guard.ts
-│   │   │   └── ingest.ts
+│   │   │   ├── cors.ts            # Origin-allowlist CORS
+│   │   │   ├── auth.ts            # JWT auth + UUID validation
+│   │   │   ├── response.ts        # Standard JSON response helpers
+│   │   │   ├── supabase-admin.ts  # Service role client
+│   │   │   ├── ai-provider.ts     # Unified provider interface + factory
+│   │   │   ├── openai-responses.ts # OpenAI Responses API client
+│   │   │   ├── claude-client.ts   # Claude Messages API client
+│   │   │   ├── rag-pipeline.ts    # Multi-query expansion + pgvector search
+│   │   │   ├── prompt-builder.ts  # Dynamic system prompt + input sanitization
+│   │   │   ├── safety-guard.ts    # Tiered crisis detection + Unicode normalization
+│   │   │   └── ingest.ts          # Document chunking + batch embedding
 │   │   ├── chat/
 │   │   │   └── index.ts
 │   │   ├── session/
@@ -2433,17 +2628,12 @@ lumi/
 │   │   ├── 20240101000008_safety_events.sql
 │   │   └── 20240101000009_rls_policies.sql
 │   └── config.toml
-├── frontend/                  # Next.js or React Native app
+├── lumi-ui/                   # Test console (Vercel-deployed)
 │   ├── app/
 │   ├── components/
 │   ├── hooks/
 │   └── auth/
-├── scripts/
-│   ├── setup-assistant.ts     # Create OpenAI Assistant
-│   ├── seed-knowledge-base.ts # Ingest initial KB documents
-│   ├── export-user-data.ts    # GDPR data export
-│   └── test-safety.ts         # Validate safety guardrails
-├── knowledge-base/            # Source documents for ingestion
+├── knowledgebase/             # Source documents for ingestion
 │   ├── en/
 │   │   ├── cbt/
 │   │   ├── dbt/
@@ -2452,8 +2642,15 @@ lumi/
 │   └── ar/
 │       ├── cbt/
 │       └── mindfulness/
-├── .env.local
-└── Skill.md
+├── scripts/
+│   ├── setup.ts               # Initial config setup
+│   ├── seed-knowledge-base.ts # Ingest initial KB documents
+│   ├── export-user-data.ts    # GDPR data export
+│   └── test-safety.ts         # Validate safety guardrails
+├── .env.example               # Template for environment variables
+├── .env.local                 # Local secrets (git-ignored)
+├── Skill.md                   # This development reference
+└── README.md
 ```
 
 ### 8.2 Environment Variables
@@ -2464,7 +2661,10 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+AI_PROVIDER=openai  # or "claude"
 ADMIN_SECRET_KEY=your-secure-admin-key
+ALLOWED_ORIGINS=https://lumi-ui.vercel.app
 
 # Frontend (NEXT_PUBLIC_ prefix for Next.js)
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
@@ -2473,19 +2673,24 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 ```bash
 # supabase/config.toml — Edge function secrets
-# Set via: supabase secrets set KEY=value
+# Set via: supabase secrets set --env-file .env.local --project-ref <ref>
 # Or Supabase Dashboard → Project Settings → Edge Functions → Secrets
 
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+AI_PROVIDER=openai
 ADMIN_SECRET_KEY=...
+ALLOWED_ORIGINS=https://lumi-ui.vercel.app
 SUPABASE_SERVICE_ROLE_KEY=...  # Auto-available in Edge Functions
 ```
 
 ### 8.3 Local Development Setup
 
+> See [Quick Start](#0-quick-start-new-machine-setup) for first-time setup from scratch.
+
 ```bash
 # 1. Install Supabase CLI
-npm install -g supabase
+brew install supabase/tap/supabase  # or: npm install -g supabase
 
 # 2. Start local Supabase
 supabase start
@@ -2506,21 +2711,27 @@ curl -X POST http://localhost:54321/functions/v1/chat \
 ### 8.4 Deployment Commands
 
 ```bash
-# Deploy all edge functions
-supabase functions deploy
+# Deploy all edge functions (--no-verify-jwt since auth is handled in code)
+supabase functions deploy chat --no-verify-jwt --project-ref <ref>
+supabase functions deploy session --no-verify-jwt --project-ref <ref>
+supabase functions deploy mood --no-verify-jwt --project-ref <ref>
+supabase functions deploy admin --no-verify-jwt --project-ref <ref>
 
-# Deploy specific function
-supabase functions deploy chat
+# Set production secrets (all at once from env file)
+supabase secrets set --env-file .env.local --project-ref <ref>
 
-# Set production secrets
-supabase secrets set OPENAI_API_KEY=sk-... --project-ref your-project-ref
-supabase secrets set ADMIN_SECRET_KEY=... --project-ref your-project-ref
+# Or set individually
+supabase secrets set OPENAI_API_KEY=sk-... --project-ref <ref>
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <ref>
+supabase secrets set AI_PROVIDER=openai --project-ref <ref>
+supabase secrets set ADMIN_SECRET_KEY=... --project-ref <ref>
+supabase secrets set ALLOWED_ORIGINS=https://lumi-ui.vercel.app --project-ref <ref>
 
 # Push migrations to production
-supabase db push --project-ref your-project-ref
+supabase db push --project-ref <ref>
 
 # Check function logs
-supabase functions logs chat --project-ref your-project-ref
+supabase functions logs chat --project-ref <ref>
 ```
 
 ### 8.5 Setup Script
@@ -2529,18 +2740,19 @@ supabase functions logs chat --project-ref your-project-ref
 // scripts/setup.ts
 // Run: deno run --allow-env --allow-net scripts/setup.ts
 
-import OpenAI from 'https://deno.land/x/openai@v4.52.0/mod.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { buildSystemPrompt } from '../supabase/functions/_shared/prompt-builder.ts';
 
-const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY')! });
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-async function setupAssistant() {
-  console.log('Creating OpenAI Assistant...');
+async function setupConfig() {
+  const provider = Deno.env.get('AI_PROVIDER') || 'openai';
+  const model = provider === 'claude' ? 'claude-sonnet-4-20250514' : 'gpt-4o';
+
+  console.log(`Setting up ${provider} config (model: ${model})...`);
 
   const systemPrompt = buildSystemPrompt({
     modality: 'mixed',
@@ -2548,29 +2760,22 @@ async function setupAssistant() {
     currentSafetyLevel: 0,
   });
 
-  const assistant = await openai.beta.assistants.create({
-    name: 'Lumi — Therapy Coach',
-    instructions: systemPrompt,
-    model: 'gpt-4o',
-  });
-
-  await supabase.from('assistant_config').insert({
+  await supabase.from('assistant_config').upsert({
     name: 'lumi-main-en',
-    openai_assistant_id: assistant.id,
-    model: 'gpt-4o',
+    provider,
+    model,
     system_prompt: systemPrompt,
     modality: 'mixed',
     language: 'en',
     is_active: true,
   });
 
-  console.log(`✓ Assistant created: ${assistant.id}`);
-  return assistant.id;
+  console.log(`✓ Config created for ${provider} (${model})`);
 }
 
 // Run setup
-setupAssistant()
-  .then(id => console.log(`Setup complete. Assistant ID: ${id}`))
+setupConfig()
+  .then(() => console.log('Setup complete.'))
   .catch(err => {
     console.error('Setup failed:', err);
     Deno.exit(1);
@@ -2745,6 +2950,20 @@ export async function withTiming<T>(
 // log({ level: 'info', function: 'chat', message: 'RAG complete', duration: durationMs });
 ```
 
+### 8.8 Claude Code CLI Compatibility
+
+This project is fully compatible with Claude Code CLI. The `.github/copilot-instructions.md`
+and `Skill.md` provide context that AI coding assistants can use to understand the codebase.
+
+Key commands for AI-assisted development:
+```bash
+supabase functions deploy <name> --no-verify-jwt --project-ref <ref>  # deploy a function
+supabase db push                                                       # push migrations to remote
+supabase secrets set KEY=value --project-ref <ref>                     # set production secrets
+```
+
+Edge functions use the Deno runtime — imports from `https://esm.sh/` and `jsr:` registries.
+
 ---
 
 ## 9. Knowledge Base Strategy
@@ -2754,7 +2973,7 @@ export async function withTiming<T>(
 Organize knowledge base content into these categories for systematic coverage:
 
 ```
-knowledge-base/
+knowledgebase/
 ├── en/
 │   ├── cbt/
 │   │   ├── thought-records.md
@@ -2953,7 +3172,8 @@ GET  /functions/v1/session?action=list     — List sessions
 GET  /functions/v1/session?action=messages — Get session messages
 POST /functions/v1/mood              — Log mood entry
 GET  /functions/v1/mood?days=30      — Get mood history
-POST /functions/v1/admin?action=ingest     — Ingest KB document (admin)
+POST /functions/v1/admin?action=ingest       — Ingest KB document (admin)
+POST /functions/v1/admin?action=setup-config — Create/update provider config (admin)
 GET  /functions/v1/admin?action=safety-events — Review safety events (admin)
 ```
 
@@ -2967,11 +3187,14 @@ Level 3: Acute crisis — crisis response only, no coaching, escalate
 
 ### Key Environment Variables
 ```
-OPENAI_API_KEY          — OpenAI access
-SUPABASE_URL            — Project URL
-SUPABASE_ANON_KEY       — Public frontend key
+OPENAI_API_KEY           — OpenAI access (Responses API + embeddings)
+ANTHROPIC_API_KEY        — Anthropic access (Claude Messages API)
+AI_PROVIDER              — Active chat provider: "openai" or "claude"
+SUPABASE_URL             — Project URL
+SUPABASE_ANON_KEY        — Public frontend key
 SUPABASE_SERVICE_ROLE_KEY — Admin edge function access
-ADMIN_SECRET_KEY        — Admin endpoint protection
+ADMIN_SECRET_KEY         — Admin endpoint protection (timing-safe comparison)
+ALLOWED_ORIGINS          — Comma-separated CORS origins
 ```
 
 ### Database Quick Commands
