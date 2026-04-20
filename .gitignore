@@ -39,3 +39,5 @@ yarn-error.log*
 # Misc
 *.pem
 test-app.html
+.envrc
+.copilot/
