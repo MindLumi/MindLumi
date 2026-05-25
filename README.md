@@ -14,7 +14,6 @@
 |------|------|--------|
 | [`MindLumi/MindLumi`](https://github.com/MindLumi/MindLumi) (this repo) | **Backend** — edge functions, schema, RAG, safety, AI providers | Canonical |
 | [`MindLumi/lumi-bece0d49`](https://github.com/MindLumi/lumi-bece0d49) | **Frontend** — React/Vite + shadcn, auth, chat UI, mood, Circle, narrative | Canonical (to be renamed `lumi-app`) |
-| [`MindLumi/Lumi-interface-`](https://github.com/MindLumi/Lumi-interface-) | _Scaffold_ — empty Lovable template | Archived |
 
 > **Schema ownership:** This repo is the single source of truth for all database migrations. Frontend repos consume the schema — they do not redeclare tables. To propose a schema change, open a PR here.
 
