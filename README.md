@@ -8,6 +8,18 @@
 
 ---
 
+## Repository Map
+
+| Repo | Role | Status |
+|------|------|--------|
+| [`MindLumi/MindLumi`](https://github.com/MindLumi/MindLumi) (this repo) | **Backend** — edge functions, schema, RAG, safety, AI providers | Canonical |
+| [`MindLumi/lumi-bece0d49`](https://github.com/MindLumi/lumi-bece0d49) | **Frontend** — React/Vite + shadcn, auth, chat UI, mood, Circle, narrative | Canonical (to be renamed `lumi-app`) |
+| [`MindLumi/Lumi-interface-`](https://github.com/MindLumi/Lumi-interface-) | _Scaffold_ — empty Lovable template | Archived |
+
+> **Schema ownership:** This repo is the single source of truth for all database migrations. Frontend repos consume the schema — they do not redeclare tables. To propose a schema change, open a PR here.
+
+---
+
 ## Architecture
 
 ```
@@ -125,6 +137,22 @@ Every message passes through tiered crisis detection **before** any AI call:
 ### Therapeutic Modalities
 
 CBT, DBT, ACT, mindfulness, somatic, IFS, narrative, psychoeducation — each with specialized system prompts.
+
+### 3-Factor Wellness Model
+
+MindLumi reduces many raw data signals into **3 composite wellness dimensions** (inspired by factor analysis — see [`mindlumi-factor-analysis-explained.md`](mindlumi-factor-analysis-explained.md)):
+
+| Factor | Signals | Purpose |
+|--------|---------|---------|
+| **Emotional Distress / Mood State** | Stress, anxiety, sadness, irritability, voice tone, facial tension, self-reported mood | Core therapy focus |
+| **Physiological Regulation / Body Readiness** | HRV, sleep quality, resting HR, fatigue, recovery, activity level | Wearable-informed context |
+| **Social & Behavioral Stability** | Isolation patterns, Circle engagement, missed check-ins, routine disruption | Buddy system intelligence |
+
+These dimensions power:
+- **Personalized baselines** — detect what's normal for each user
+- **AI context injection** — therapist AI references dimensional patterns, not raw numbers
+- **Circle / supporter insights** — meaningful summaries instead of raw metrics
+- **Early risk detection** — multi-dimensional threshold alerts (e.g., emotional distress ↑ + recovery ↓ + social engagement ↓)
 
 ### Security Hardening
 
@@ -251,6 +279,23 @@ deno run --allow-env --allow-net scripts/seed-knowledge-base.ts
 ## AI-Assisted Development
 
 This project is fully compatible with Claude Code CLI and GitHub Copilot CLI. The [`Skill.md`](Skill.md) (3000+ lines) and [`.github/copilot-instructions.md`](.github/copilot-instructions.md) provide rich context for AI-assisted development.
+
+## Roadmap
+
+Active milestones are tracked in the frontend repo's [`docs/milestones/`](https://github.com/MindLumi/lumi-bece0d49/tree/main/docs/milestones):
+
+- **M3 — Circle + Longitudinal Metrics** — turn the metrics/Circle schema into a usable product surface ([details](https://github.com/MindLumi/lumi-bece0d49/blob/main/docs/milestones/M3-circle-and-metrics.md))
+- **Factor scoring pipeline** — nightly computation of composite wellness dimensions (#11)
+- **Multi-modal signal extraction** — voice biomarkers + behavior patterns feeding into factors (#12)
+- **Cross-repo consolidation** — tracked in #10
+
+## Contributing
+
+1. **Schema changes** → open a PR in this repo (`supabase/migrations/`).
+2. **Edge function changes** → open a PR in this repo (`supabase/functions/`).
+3. **Frontend changes** → open a PR in [`MindLumi/lumi-bece0d49`](https://github.com/MindLumi/lumi-bece0d49).
+4. **Never log therapy message content** — only structured metadata.
+5. **Safety system is non-negotiable** — do not weaken `safety-guard.ts`.
 
 ## License
 
