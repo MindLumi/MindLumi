@@ -4,8 +4,6 @@
 
 > ⚠️ **Lumi is an AI coaching tool, not a replacement for licensed therapy.** If you or someone you know is in crisis, please contact your local emergency services or a crisis hotline.
 
-**Test Console:** [lumi-ui-rho.vercel.app](https://lumi-ui-rho.vercel.app)
-
 ---
 
 ## Repository Map
